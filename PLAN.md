@@ -38,18 +38,19 @@
 
 ## 阶段三：PDF 图片替换（单灯位）
 
-### [ ] 3.1 模板 PDF 打开 + 图片定位
-- 在 `pdf/template.go` 中实现
-- 读取模板 PDF（使用 pdfcpu 或原生方式）
-- 遍历页面 XObject/图片资源
-- 根据 `(pageWidth, pageHeight, x, y, width, height)` 匹配目标图片对象
-- 处理 PDF 坐标转换（左下角原点 → 左上角？）
+### [x] 3.1 模板 PDF 打开 + 图片定位 (2026-06-01)
+- 使用 pdfcpu 打开模板 PDF，解析 XObject 字典
+- 修复：`Dereference` 解引用 Resources/XObject 避免类型断言失败
+- 修复：`Decode()` 解压 FlateDecode 内容流
+- 修复：tokenizer 中 readingName 标识避免 `/Im0` 被拆分为 `Im`+`0`
+- 修复：`cm` 操作符的错误 `i+=6` 跳跃导致跳过 `Do` 操作符
+- 从模板 PDF 正确提取 11 张图片的位置（objNr, 坐标, 尺寸）
 
-### [ ] 3.2 图片替换 + contain 适配
-- 读取选中的素材 PNG
-- contain 缩放（较长边适应占位框，居中）
-- 替换 PDF 流数据
-- 验证单条替换可用
+### [x] 3.2 图片替换 + contain 适配 (2026-06-01)
+- `FindImageByRect` 通过坐标容差匹配目标占位图片
+- `ReplaceImage` 通过 pdfcpu.UpdateImagesByObjNr 替换图片流
+- 含 contain 缩放适配逻辑（居中留白）
+- 坐标匹配测试通过（V1 匹配 Im10）
 
 ---
 
