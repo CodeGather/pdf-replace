@@ -223,7 +223,7 @@ func WriteTableToPDF(outputPath string, columns []ColumnDef, rows []TableRow, fo
 	tR, tG, tB := uint8(160), uint8(30), uint8(30)
 
 	pdf := &gopdf.GoPdf{}
-	pdf.Start(gopdf.Config{PageSize: gopdf.Rect{W: pageW, H: totalH + 20}})
+	pdf.Start(gopdf.Config{PageSize: gopdf.Rect{W: pageW, H: totalH}})
 	pdf.AddTTFFont("hyzdx", fontPath)
 	pdf.AddPage()
 
@@ -249,7 +249,7 @@ func WriteTableToPDF(outputPath string, columns []ColumnDef, rows []TableRow, fo
 	// 每行22pt，10pt CJK 文字视觉中心居中：
 	//   gopdf baseline = 行顶 + bodyH/2 + fontSize*0.38
 	pdf.SetTextColor(tR, tG, tB)
-	y := headerH + 10
+	y := headerH
 	for _, row := range rows {
 		// 10pt CJK in 22pt row: baseline = rowTop + bodyH/2 + fontSize*0.38
 		yBase := y + bodyH/2 + 10*0.38
