@@ -298,8 +298,8 @@ func renderTable(tmpl *pdf.Template, cfg *model.Config, rows []tableRow) (float6
 	}
 
 	// 预估表格高度 + gap，扩展页面 + 上移原有内容
-	gap := 50.0
-	estTableH := 40.0 + float64(len(rows))*22.0
+	gap := 25.0
+	estTableH := 28.0 + float64(len(rows))*22.0
 	extraH := estTableH + gap
 	if err := tmpl.ExtendPageHeight(extraH); err != nil {
 		return 0, fmt.Errorf("扩展页面高度: %w", err)

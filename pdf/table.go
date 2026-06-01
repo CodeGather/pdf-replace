@@ -215,7 +215,7 @@ func WriteTableToPDF(outputPath string, columns []ColumnDef, rows []TableRow, fo
 	usableW := pageW - marginL*2
 	colWidths := calcColWidths(columns, usableW)
 
-	headerH := 40.0
+	headerH := 28.0
 	bodyH := 22.0
 	totalH := headerH + float64(len(rows))*bodyH
 
@@ -237,10 +237,10 @@ func WriteTableToPDF(outputPath string, columns []ColumnDef, rows []TableRow, fo
 		cellW := colWidths[i]
 		textW, _ := pdf.MeasureTextWidth(col.Label)
 		tx := calcAlignX(x, cellW, textW, col.Align)
-		// 文字在 40pt 灰色背景中上下居中
+		// 文字在 28pt 灰色背景中上下居中
 		// 11pt CJK 视觉中心偏移=11*0.38=4.18pt
-		// baseline=62-4.18=58 → gopdf y=24
-		pdf.SetXY(tx, 24)
+		// center=14, baseline=14+4.18=18.18 → gopdf y=18
+		pdf.SetXY(tx, 18)
 		pdf.Text(col.Label)
 		x += cellW
 	}
@@ -249,7 +249,7 @@ func WriteTableToPDF(outputPath string, columns []ColumnDef, rows []TableRow, fo
 	// 每行22pt，10pt CJK 文字视觉中心居中：
 	//   gopdf baseline = 行顶 + bodyH/2 + fontSize*0.38
 	pdf.SetTextColor(tR, tG, tB)
-	y := headerH + 15
+	y := headerH + 10
 	for _, row := range rows {
 		x = marginL
 		for i, col := range columns {
