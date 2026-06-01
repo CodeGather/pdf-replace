@@ -251,13 +251,15 @@ func WriteTableToPDF(outputPath string, columns []ColumnDef, rows []TableRow, fo
 	pdf.SetTextColor(tR, tG, tB)
 	y := headerH + 10
 	for _, row := range rows {
+		// 10pt CJK in 22pt row: baseline = rowTop + bodyH/2 + fontSize*0.38
+		yBase := y + bodyH/2 + 10*0.38
 		x = marginL
 		for i, col := range columns {
 			val := row[col.Key]
 			pdf.SetFont("hyzdx", "", 10)
 			textW, _ := pdf.MeasureTextWidth(val)
 			tx := calcAlignX(x, colWidths[i], textW, col.Align)
-			pdf.SetXY(tx, y)
+			pdf.SetXY(tx, yBase)
 			pdf.Text(val)
 			x += colWidths[i]
 		}
