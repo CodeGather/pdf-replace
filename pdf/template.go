@@ -3,15 +3,12 @@ package pdf
 import (
 	"bytes"
 	"fmt"
-	"image"
-	"image/png"
 	"math"
 	"os"
 	"strconv"
 	"strings"
 
 	"github.com/pdfcpu/pdfcpu/pkg/api"
-	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/types"
 )
@@ -260,24 +257,23 @@ func (t *Template) FindImageByRect(tx, ty, tw, th, tolerance float64) *ImagePosi
 }
 
 // ReplaceImage 替换指定 objNr 的图片
-func (t *Template) ReplaceImage(objNr int, newImagePath string) error {
-	f, err := os.Open(newImagePath)
+func (t *Template) ReplaceImage(objNr int, pngData []byte) error {
+	// 绕过 pdfcpu 的 validateImageDimensions （需要提前填充 Optimize.ImageObjects）
+	// 直接创建新的 StreamDict 并替换 xref 表项
+	rd := bytes.NewReader(pngData)
+	sd, _, _, err := model.CreateImageStreamDict(t.ctx.XRefTable, rd)
 	if err != nil {
-		return fmt.Errorf("打开替换图片失败: %w", err)
-	}
-	defer f.Close()
-
-	srcImg, _, err := image.Decode(f)
-	if err != nil {
-		return fmt.Errorf("解码图片失败: %w", err)
+		return fmt.Errorf("创建图片流失败: %w", err)
 	}
 
-	var buf bytes.Buffer
-	if err := png.Encode(&buf, srcImg); err != nil {
-		return fmt.Errorf("编码 PNG 失败: %w", err)
+	genNr := 0
+	entry, ok := t.ctx.FindTableEntry(objNr, genNr)
+	if !ok {
+		return fmt.Errorf("未找到 objNr=%d", objNr)
 	}
 
-	return pdfcpu.UpdateImagesByObjNr(t.ctx, &buf, objNr)
+	entry.Object = *sd
+	return nil
 }
 
 // ExtendPageHeight 向下拓展所有页面高度
@@ -295,13 +291,13 @@ func (t *Template) ExtendPageHeight(extraHeight float64) error {
 		if !ok || len(rect) < 4 {
 			continue
 		}
-		llx, _ := rect[0].(types.Float)
-		lly, _ := rect[1].(types.Float)
-		urx, _ := rect[2].(types.Float)
-		ury, _ := rect[3].(types.Float)
+		llx := toFloat(rect[0])
+		lly := toFloat(rect[1])
+		urx := toFloat(rect[2])
+		ury := toFloat(rect[3])
 		r := types.Rectangle{
-			LL: types.Point{X: float64(llx), Y: float64(lly)},
-			UR: types.Point{X: float64(urx), Y: float64(ury)},
+			LL: types.Point{X: llx, Y: lly},
+			UR: types.Point{X: urx, Y: ury},
 		}
 		r.LL.Y -= extraHeight
 		pd["MediaBox"] = types.Array{types.Float(r.LL.X), types.Float(r.LL.Y), types.Float(r.UR.X), types.Float(r.UR.Y)}
@@ -317,6 +313,30 @@ func (t *Template) WriteToFile(outputPath string) error {
 	}
 	defer f.Close()
 	return api.WriteContext(t.ctx, f)
+}
+
+// Context 返回底层的 pdfcpu Context
+func (t *Template) Context() *model.Context {
+	return t.ctx
+}
+
+// PageSize 返回第 n 页的宽度和高度（pt）
+func (t *Template) PageSize(pageNum int) (width, height float64, err error) {
+	pd, _, _, err := t.ctx.PageDict(pageNum, false)
+	if err != nil {
+		return 0, 0, err
+	}
+	mb, ok := pd.Find("MediaBox")
+	if !ok {
+		return 0, 0, fmt.Errorf("no MediaBox")
+	}
+	rect, ok := mb.(types.Array)
+	if !ok || len(rect) < 4 {
+		return 0, 0, fmt.Errorf("invalid MediaBox")
+	}
+	urx := toFloat(rect[2])
+	ury := toFloat(rect[3])
+	return urx, ury, nil
 }
 
 // Close 释放资源

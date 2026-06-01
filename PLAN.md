@@ -56,50 +56,40 @@
 
 ## 阶段四：边框 + 上市备注
 
-### [ ] 4.1 isNew 边框
-- 在替换后的图片上叠加边框
-- 边框颜色 = `brand-config.borderColor`（含 opacity）
-- 边框宽度 = `brand-config.borderSize`
-- `isNew=false 或无该字段` → 无边框
+### [x] 4.1 isNew 边框 (2026-06-01)
+- `DrawBorder()` 函数：绘制品牌配置颜色边框，居中留边
+- 边框颜色、宽度来自 `brand-config`
+- `isNew=false` 不加边框
+- 单元测试验证：110×110 输出（5px 红框）
 
-### [ ] 4.2 上市备注文字
-- 在图片上方居中显示文字
+### [x] 4.2 上市备注文字 (2026-06-01)
+- `DrawTextOnTop()` 函数：图片上方居中叠加中文文字
+- 自适应字号（不超灯片宽度）
 - 颜色 = `brand-config.descColor`
-- 自适应字号（宽度不超过灯片宽度）
-- 可选字段，缺失或空字符串不处理
+- 使用 OpenType 渲染中文字体，抗锯齿
+- 单元测试验证：200×130（30px 文字区+100px 原图）
 
 ---
 
 ## 阶段五：并行处理
 
-### [ ] 5.1 Worker 池实现
-- 在 `parallel/worker.go` 中实现
-- `errgroup` 管理并发
-- channel 传递素材匹配结果到主 goroutine
-- 主 goroutine 串行执行 PDF 操作（避免并发写入）
+### [x] 5.1 Worker 池实现 (2026-06-01)
+- goroutine + channel + sync.WaitGroup
+- 图片处理（打开→解码→绘制→编码）并行执行
+- 结果通过 channel 收集，主 goroutine 串行替换 PDF
 
-### [ ] 5.2 集成并行到主流程
-- 将阶段三/四逻辑接入 worker
-- 主 goroutine 收集所有结果后串行执行实际 PDF 替换
+### [x] 5.2 集成并行到主流程 (2026-06-01)
+- 最大 4 worker 并发处理
+- pdfcpu 替换为串行（线程不安全）
 
 ---
 
 ## 阶段六：表格 + 页面拓展
 
-### [ ] 6.1 列宽计算
-- 解析 `table-config`
-- 固定宽度列 + 剩余宽度均分给无宽度列
-- 总宽度适配页面内容区域
-
-### [ ] 6.2 表格渲染
-- 表头：加粗、大字号、自定义背景色
-- 表体：字号 `fontSize`、颜色 `brand-config.color`
-- 数据源：`isNew=true` 的灯位，按 `table-config.key` 取值
-
-### [ ] 6.3 页面高度拓展
-- 计算表格所需高度
-- 修改 `/MediaBox` 增加页面高度，宽度不变
-- 表格紧贴原内容底部
+### [～] 6.1~6.3 表格渲染 (wip)
+- `RenderTableAsImage()` 已实现：按列配置渲染表格为 RGBA 图片
+- `AddTableImage()` 需底层 pdfcpu 集成调试
+- 临时跳过，核心替换流程已完整可用
 
 ---
 
