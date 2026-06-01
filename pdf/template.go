@@ -320,6 +320,16 @@ func (t *Template) Context() *model.Context {
 	return t.ctx
 }
 
+// SetContext 替换底层的 pdfcpu Context
+func (t *Template) SetContext(ctx *model.Context) {
+	t.ctx = ctx
+}
+
+// Path 返回模板 PDF 路径
+func (t *Template) Path() string {
+	return t.path
+}
+
 // PageSize 返回第 n 页的宽度和高度（pt）
 func (t *Template) PageSize(pageNum int) (width, height float64, err error) {
 	pd, _, _, err := t.ctx.PageDict(pageNum, false)
@@ -347,4 +357,16 @@ func (t *Template) Close() {
 // ImagePositions 返回所有已提取的图片位置
 func (t *Template) ImagePositions() []ImagePosition {
 	return t.imgs
+}
+
+// toFloat 将 types.Object 转为 float64（兼容 Integer 和 Float）
+func toFloat(o types.Object) float64 {
+	switch v := o.(type) {
+	case types.Float:
+		return float64(v)
+	case types.Integer:
+		return float64(v)
+	default:
+		return 0
+	}
 }

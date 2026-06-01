@@ -91,3 +91,21 @@
 **Yau:** 现在把你理解的生成一份文档，以便下一个AI智能体能够读懂，秒理解，可以立马工作，所以需要尽量详细
 
 **Hermes:** 已生成完整技术规格书 `SPEC.md`，包含：项目概述、CLI 接口、JSON 结构详解、核心算法（方向匹配+宽高比匹配+contain适配）、并行设计、PDF 技术方案、表格生成、边缘案例、文件结构、测试场景、实现优先级。
+
+---
+
+## 2026-06-01 20:14
+
+**Yau:** 完成表格的绘制功能
+
+**Hermes:** 重写了表格写入方案：弃用直接操作 pdfcpu xref 表的方式（导致 ObjectStreamDict 崩溃），改用两阶段写入+水印叠加：
+1. 在内存中渲染表格为 RGBA 图片（`RenderTableAsImage`）
+2. 扩展 PDF MediaBox 高度腾出底部空间
+3. 写出到临时文件
+4. 用 pdfcpu 的 `api.AddWatermarksFile` 将表格图片作为水印 stamp 到页脚
+
+修复了 `main.go` 中 `-o` flag 必须放在 input.json 之前的问题（Go flag 包在遇到第一个非 flag 参数后停止解析），改为手动解析 args，`-o` 支持任意位置。
+
+新增 `pdf/table.go`：TableSpec/ColumnDef/TableRow 定义、RenderTableAsImage、StampTableImage、drawCellText
+新增 `pdf/template.go`：SetContext、Path、toFloat 方法/函数
+修改 `cmd/replace.go`：renderTable 集成表格渲染+水印叠加

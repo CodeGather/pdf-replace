@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"image"
+	"image/color"
 	_ "image/jpeg"
 	_ "image/png"
 	"log"
@@ -208,18 +209,12 @@ func Run(inputPath, outputPath string) error {
 		}
 	}
 
-	// 6. 构建 isNew 表格（Phase 6）
-	tableH, err := renderTable(tmpl, cfg, newRows)
-	if err != nil {
+	// 6. 构建 isNew 表格
+	if _, err := renderTable(tmpl, cfg, newRows, outputPath); err != nil {
 		return fmt.Errorf("渲染表格失败: %w", err)
 	}
-	if tableH > 0 {
-		if err := tmpl.ExtendPageHeight(tableH); err != nil {
-			return fmt.Errorf("扩展页面高度失败: %w", err)
-		}
-	}
 
-	// 7. 写入（表格插入暂跳过，核心替换已完成）
+	// 7. 写入
 	if err := tmpl.WriteToFile(outputPath); err != nil {
 		return fmt.Errorf("写入 PDF 失败: %w", err)
 	}
@@ -266,10 +261,60 @@ func processImage(srcPath string, lampItem model.LampItem, bc model.BrandConfig)
 	return pdf.EncodePNG(img)
 }
 
-// renderTable 渲染 isNew 表格并追加到 PDF（TODO: 表格写入需调试）
-func renderTable(tmpl *pdf.Template, cfg *model.Config, rows []tableRow) (float64, error) {
-	if len(rows) > 0 {
-		log.Printf("表格待写入: %d 行 (isNew 灯位只需边框, 表格为视觉补充, 可稍后完善)", len(rows))
+// renderTable 渲染 isNew 表格并通过 pdfcpu 水印叠加到底部
+func renderTable(tmpl *pdf.Template, cfg *model.Config, rows []tableRow, outputPath string) (float64, error) {
+	if len(rows) == 0 {
+		return 0, nil
 	}
+
+	// 构建列定义
+	var cols []pdf.ColumnDef
+	for _, tc := range cfg.TableConf {
+		col := pdf.ColumnDef{Label: tc.Label, Key: tc.Key, Align: tc.Align}
+		if tc.Width != nil {
+			col.Width = tc.Width
+		}
+		cols = append(cols, col)
+	}
+
+	// 构建行数据
+	var tbRows []pdf.TableRow
+	for _, r := range rows {
+		row := pdf.TableRow{
+			"灯位编号": r.num,
+			"可见宽": fmt.Sprintf("%.0f", r.item.VisibleW),
+			"可见长": fmt.Sprintf("%.0f", r.item.VisibleH),
+			"素材名称": filepath.Base(r.image.Path),
+			"图片尺寸": fmt.Sprintf("%.0fx%.0f", r.image.Width, r.image.Height),
+		}
+		tbRows = append(tbRows, row)
+	}
+
+	pageW, _, err := tmpl.PageSize(1)
+	if err != nil {
+		return 0, fmt.Errorf("获取页面尺寸: %w", err)
+	}
+
+	spec := pdf.TableSpec{
+		Columns:      cols,
+		Rows:         tbRows,
+		HeaderColor:  color.RGBA{180, 40, 40, 255},
+		BodyColor:    color.RGBA{255, 240, 240, 255},
+		HeaderFontSz: cfg.BrandConf.FontSize + 4,
+		BodyFontSz:   cfg.BrandConf.FontSize,
+		FontPath:     fontPath,
+		PageWidth:    pageW,
+	}
+
+	tableImg, _, err := pdf.RenderTableAsImage(spec)
+	if err != nil {
+		return 0, fmt.Errorf("渲染表格: %w", err)
+	}
+
+	if err := pdf.StampTableImage(tmpl, tableImg, filepath.Dir(outputPath)); err != nil {
+		return 0, fmt.Errorf("叠加表格: %w", err)
+	}
+
+	log.Printf("表格已叠加 (行数=%d)", len(rows))
 	return 0, nil
 }
