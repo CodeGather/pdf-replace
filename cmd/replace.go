@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"image"
-	"image/color"
 	_ "image/jpeg"
 	_ "image/png"
 	"log"
@@ -19,7 +18,7 @@ import (
 )
 
 const (
-	fontPath   = "/Users/yau/Library/Fonts/MicrosoftYaHei.ttf"
+	fontPath   = "/Users/Yau/work/1.Resources/2.AI/pdf-replace/assets/hyzdx.ttf"
 	tolerance  = 5.0
 	basePDFDir = "/Users/Yau/Library/Application Support/com.lorealchina.mplus"
 )
@@ -210,7 +209,7 @@ func Run(inputPath, outputPath string) error {
 	}
 
 	// 6. 构建 isNew 表格
-	if _, err := renderTable(tmpl, cfg, newRows, outputPath); err != nil {
+	if _, err := renderTable(tmpl, cfg, newRows); err != nil {
 		return fmt.Errorf("渲染表格失败: %w", err)
 	}
 
@@ -261,8 +260,8 @@ func processImage(srcPath string, lampItem model.LampItem, bc model.BrandConfig)
 	return pdf.EncodePNG(img)
 }
 
-// renderTable 渲染 isNew 表格并通过 pdfcpu 水印叠加到底部
-func renderTable(tmpl *pdf.Template, cfg *model.Config, rows []tableRow, outputPath string) (float64, error) {
+// renderTable 渲染 isNew 表格为原生 PDF 文本（可搜索）并注入到页面底部
+func renderTable(tmpl *pdf.Template, cfg *model.Config, rows []tableRow) (float64, error) {
 	if len(rows) == 0 {
 		return 0, nil
 	}
@@ -277,15 +276,18 @@ func renderTable(tmpl *pdf.Template, cfg *model.Config, rows []tableRow, outputP
 		cols = append(cols, col)
 	}
 
-	// 构建行数据
+	// 构建行数据（key 必须与 table-config.key 一致）
 	var tbRows []pdf.TableRow
 	for _, r := range rows {
 		row := pdf.TableRow{
+			"柜台名称": cfg.ShopName,
 			"灯位编号": r.num,
-			"可见宽": fmt.Sprintf("%.0f", r.item.VisibleW),
-			"可见长": fmt.Sprintf("%.0f", r.item.VisibleH),
-			"素材名称": filepath.Base(r.image.Path),
-			"图片尺寸": fmt.Sprintf("%.0fx%.0f", r.image.Width, r.image.Height),
+			"灯位位置": r.item.Position,
+			"材质":   r.item.Material,
+			"可见宽":  fmt.Sprintf("%.0f", r.item.VisibleW),
+			"可见长":  fmt.Sprintf("%.0f", r.item.VisibleH),
+			"灯位备注": r.item.LampNote,
+			"画面内容": r.item.Content,
 		}
 		tbRows = append(tbRows, row)
 	}
@@ -295,26 +297,28 @@ func renderTable(tmpl *pdf.Template, cfg *model.Config, rows []tableRow, outputP
 		return 0, fmt.Errorf("获取页面尺寸: %w", err)
 	}
 
-	spec := pdf.TableSpec{
-		Columns:      cols,
-		Rows:         tbRows,
-		HeaderColor:  color.RGBA{180, 40, 40, 255},
-		BodyColor:    color.RGBA{255, 240, 240, 255},
-		HeaderFontSz: cfg.BrandConf.FontSize + 4,
-		BodyFontSz:   cfg.BrandConf.FontSize,
-		FontPath:     fontPath,
-		PageWidth:    pageW,
+	// 预估表格高度 + gap，扩展页面 + 上移原有内容
+	gap := 50.0
+	estTableH := 40.0 + float64(len(rows))*22.0
+	extraH := estTableH + gap
+	if err := tmpl.ExtendPageHeight(extraH); err != nil {
+		return 0, fmt.Errorf("扩展页面高度: %w", err)
 	}
 
-	tableImg, _, err := pdf.RenderTableAsImage(spec)
+	// 生成临时表格 PDF（使用 gopdf，原生文本）
+	tmpPath := filepath.Join(os.TempDir(), fmt.Sprintf("pdf-replace-table-%d.pdf", os.Getpid()))
+	tableH, err := pdf.WriteTableToPDF(tmpPath, cols, tbRows, fontPath, pageW)
 	if err != nil {
-		return 0, fmt.Errorf("渲染表格: %w", err)
+		return 0, fmt.Errorf("生成表格 PDF: %w", err)
+	}
+	_ = tableH
+	defer os.Remove(tmpPath)
+
+	// 注入表格内容流到主 PDF
+	if err := pdf.InjectTableContent(tmpl, tmpPath, pageW, extraH); err != nil {
+		return 0, fmt.Errorf("注入表格内容: %w", err)
 	}
 
-	if err := pdf.StampTableImage(tmpl, tableImg, filepath.Dir(outputPath)); err != nil {
-		return 0, fmt.Errorf("叠加表格: %w", err)
-	}
-
-	log.Printf("表格已叠加 (行数=%d)", len(rows))
+	log.Printf("表格已注入 (行数=%d, 字体=%s)", len(rows), filepath.Base(fontPath))
 	return 0, nil
 }

@@ -276,35 +276,6 @@ func (t *Template) ReplaceImage(objNr int, pngData []byte) error {
 	return nil
 }
 
-// ExtendPageHeight 向下拓展所有页面高度
-func (t *Template) ExtendPageHeight(extraHeight float64) error {
-	for pageNum := 1; pageNum <= t.ctx.PageCount; pageNum++ {
-		pd, _, _, err := t.ctx.PageDict(pageNum, false)
-		if err != nil {
-			return fmt.Errorf("PageDict %d: %w", pageNum, err)
-		}
-		mb, ok := pd.Find("MediaBox")
-		if !ok {
-			continue
-		}
-		rect, ok := mb.(types.Array)
-		if !ok || len(rect) < 4 {
-			continue
-		}
-		llx := toFloat(rect[0])
-		lly := toFloat(rect[1])
-		urx := toFloat(rect[2])
-		ury := toFloat(rect[3])
-		r := types.Rectangle{
-			LL: types.Point{X: llx, Y: lly},
-			UR: types.Point{X: urx, Y: ury},
-		}
-		r.LL.Y -= extraHeight
-		pd["MediaBox"] = types.Array{types.Float(r.LL.X), types.Float(r.LL.Y), types.Float(r.UR.X), types.Float(r.UR.Y)}
-	}
-	return nil
-}
-
 // WriteToFile 写入修改后的 PDF
 func (t *Template) WriteToFile(outputPath string) error {
 	f, err := os.Create(outputPath)
