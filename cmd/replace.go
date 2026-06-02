@@ -6,7 +6,6 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"log"
-	"math"
 	"os"
 	"path/filepath"
 	"sync"
@@ -151,7 +150,7 @@ func Run(inputPath, outputPath string) error {
 		})
 	}
 
-	// 4. 并行处理图片（打开→解码→绘制→编码）
+	// 4. 并行处理图片（打开→解码→文字叠加→编码，无边框）
 	log.Printf("并行处理 %d 张图片...", len(prepJobs))
 	type processed struct {
 		numStr string
@@ -191,8 +190,12 @@ func Run(inputPath, outputPath string) error {
 	wg.Wait()
 	close(results)
 
-	// 5. 串行替换 PDF（pdfcpu 非线程安全）
+	// 5. 串行替换 PDF 图片 + 记录 isNew 灯位信息
 	var newRows []tableRow
+	var newObjNrPositions []struct {
+		objNr int
+		name  string
+	}
 	for r := range results {
 		if r.err != nil {
 			log.Printf("  [错误] 灯位 %s: %v", r.numStr, r.err)
@@ -205,6 +208,28 @@ func Run(inputPath, outputPath string) error {
 		log.Printf("  [替换] 灯位 %s (obj=%d)", r.numStr, r.objNr)
 		if r.isNew {
 			newRows = append(newRows, tableRow{num: r.numStr})
+			newObjNrPositions = append(newObjNrPositions, struct {
+				objNr int
+				name  string
+			}{objNr: r.objNr, name: r.numStr})
+		}
+	}
+
+	// 5b. 独立 PDF 矢量边框（与图片无关，所有灯位线宽一致）
+	bc := cfg.BrandConf
+	for _, item := range newObjNrPositions {
+		imgPos := tmpl.FindImageByObjNr(item.objNr)
+		if imgPos == nil {
+			log.Printf("  [警告] 灯位 %s(obj=%d) 无位置信息，跳过边框", item.name, item.objNr)
+			continue
+		}
+		lw := bc.BorderSize
+		if lw < 1 {
+			lw = 1
+		}
+		if err := tmpl.DrawRectBorder(*imgPos, lw,
+			bc.BorderColor.Red, bc.BorderColor.Green, bc.BorderColor.Blue); err != nil {
+			log.Printf("  [警告] 灯位 %s 边框失败: %v", item.name, err)
 		}
 	}
 
@@ -221,7 +246,7 @@ func Run(inputPath, outputPath string) error {
 	return nil
 }
 
-// processImage 在 worker 中处理单张图片
+// processImage 只解码图片 + 叠加上市备注文字（不处理边框）
 func processImage(srcPath string, lampItem model.LampItem, bc model.BrandConfig) ([]byte, error) {
 	f, err := os.Open(srcPath)
 	if err != nil {
@@ -235,16 +260,6 @@ func processImage(srcPath string, lampItem model.LampItem, bc model.BrandConfig)
 	}
 
 	img := srcImg
-
-	// isNew 边框
-	if lampItem.IsNewValue() {
-		bs := int(math.Round(bc.BorderSize))
-		if bs < 1 {
-			bs = 2
-		}
-		img = pdf.DrawBorder(img, bs, bc.BorderColor.Red, bc.BorderColor.Green,
-			bc.BorderColor.Blue, bc.BorderColor.Opacity)
-	}
 
 	// 上市备注文字
 	if lampItem.LaunchNote != "" {
@@ -266,7 +281,6 @@ func renderTable(tmpl *pdf.Template, cfg *model.Config, rows []tableRow) (float6
 		return 0, nil
 	}
 
-	// 构建列定义
 	var cols []pdf.ColumnDef
 	for _, tc := range cfg.TableConf {
 		col := pdf.ColumnDef{Label: tc.Label, Key: tc.Key, Align: tc.Align}
@@ -276,7 +290,6 @@ func renderTable(tmpl *pdf.Template, cfg *model.Config, rows []tableRow) (float6
 		cols = append(cols, col)
 	}
 
-	// 构建行数据（key 必须与 table-config.key 一致）
 	var tbRows []pdf.TableRow
 	for _, r := range rows {
 		row := pdf.TableRow{
@@ -297,15 +310,13 @@ func renderTable(tmpl *pdf.Template, cfg *model.Config, rows []tableRow) (float6
 		return 0, fmt.Errorf("获取页面尺寸: %w", err)
 	}
 
-	// 预估表格高度 + gap，扩展页面 + 上移原有内容
 	gap := 0.0
-	estTableH := 28.0 + float64(len(rows))*22.0
+	estTableH := 22.0 + float64(len(rows))*20.0
 	extraH := estTableH + gap
 	if err := tmpl.ExtendPageHeight(extraH); err != nil {
 		return 0, fmt.Errorf("扩展页面高度: %w", err)
 	}
 
-	// 生成临时表格 PDF（使用 gopdf，原生文本）
 	tmpPath := filepath.Join(os.TempDir(), fmt.Sprintf("pdf-replace-table-%d.pdf", os.Getpid()))
 	tableH, err := pdf.WriteTableToPDF(tmpPath, cols, tbRows, fontPath, pageW)
 	if err != nil {
@@ -314,7 +325,6 @@ func renderTable(tmpl *pdf.Template, cfg *model.Config, rows []tableRow) (float6
 	_ = tableH
 	defer os.Remove(tmpPath)
 
-	// 注入表格内容流到主 PDF
 	if err := pdf.InjectTableContent(tmpl, tmpPath, pageW, extraH); err != nil {
 		return 0, fmt.Errorf("注入表格内容: %w", err)
 	}

@@ -163,3 +163,42 @@ func EncodePNG(img image.Image) ([]byte, error) {
 	}
 	return buf.Bytes(), nil
 }
+
+// ScaleImageContain 将图片缩放到目标尺寸（contain 模式，保持比例）
+func ScaleImageContain(img image.Image, targetW, targetH float64) image.Image {
+	bounds := img.Bounds()
+	srcW := float64(bounds.Dx())
+	srcH := float64(bounds.Dy())
+
+	// 计算缩放比例（contain 模式，保持比例，最长边填满目标）
+	scaleW := targetW / srcW
+	scaleH := targetH / srcH
+	scale := math.Min(scaleW, scaleH)
+
+	newW := int(math.Round(srcW * scale))
+	newH := int(math.Round(srcH * scale))
+
+	// 创建新画布（目标尺寸）
+	canvas := image.NewRGBA(image.Rect(0, 0, int(targetW), int(targetH)))
+
+	// 居中放置缩放后的图片
+	offsetX := (int(targetW) - newW) / 2
+	offsetY := (int(targetH) - newH) / 2
+
+	// 简单缩放（最近邻插值）
+	for y := 0; y < newH; y++ {
+		for x := 0; x < newW; x++ {
+			srcX := int(math.Round(float64(x) / scale))
+			srcY := int(math.Round(float64(y) / scale))
+			if srcX >= bounds.Dx() {
+				srcX = bounds.Dx() - 1
+			}
+			if srcY >= bounds.Dy() {
+				srcY = bounds.Dy() - 1
+			}
+			canvas.Set(offsetX+x, offsetY+y, img.At(bounds.Min.X+srcX, bounds.Min.Y+srcY))
+		}
+	}
+
+	return canvas
+}

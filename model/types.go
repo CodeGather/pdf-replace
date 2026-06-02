@@ -76,12 +76,17 @@ type LampItem struct {
 	TotalSheets float64 `json:"柜台所有数量(张),omitempty"`
 }
 
-// IsNewValue 返回 isNew 的值，兼容 null/missing/false
+// IsNewValue 返回 isNew 的值，兼容 null/missing/false 和 上市灯片: "Y"
 func (l *LampItem) IsNewValue() bool {
-	if l.IsNew == nil {
-		return false
+	// 优先检查 isNew 字段
+	if l.IsNew != nil {
+		return *l.IsNew
 	}
-	return *l.IsNew
+	// 兼容 上市灯片: "Y" 的情况
+	if l.LaunchFilm == "Y" || l.LaunchFilm == "y" {
+		return true
+	}
+	return false
 }
 
 // -------- DB Data --------

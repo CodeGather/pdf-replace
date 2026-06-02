@@ -215,8 +215,8 @@ func WriteTableToPDF(outputPath string, columns []ColumnDef, rows []TableRow, fo
 	usableW := pageW - marginL*2
 	colWidths := calcColWidths(columns, usableW)
 
-	headerH := 28.0
-	bodyH := 22.0
+	headerH := 22.0  // 表头高度从28pt改为22pt
+	bodyH := 20.0  // 表体高度从22pt改为20pt
 	totalH := headerH + float64(len(rows))*bodyH
 
 	// 品牌红色（body 文字颜色）
@@ -233,32 +233,47 @@ func WriteTableToPDF(outputPath string, columns []ColumnDef, rows []TableRow, fo
 	pdf.SetTextColor(0, 0, 0)
 	x := marginL
 	for i, col := range columns {
-		pdf.SetFont("hyzdx", "", 11)
+		pdf.SetFont("hyzdx", "", 9)  // 表头字体从11pt改为9pt
 		cellW := colWidths[i]
 		textW, _ := pdf.MeasureTextWidth(col.Label)
 		tx := calcAlignX(x, cellW, textW, col.Align)
-		// 文字在 28pt 灰色背景中上下居中
-		// 11pt CJK 视觉中心偏移=11*0.38=4.18pt
-		// center=14, baseline=14+4.18=18.18 → gopdf y=18
-		pdf.SetXY(tx, 18)
+	// 文字在 22pt 灰色背景中上下居中
+	// 9pt CJK 视觉中心偏移=9*0.38=3.42pt
+	// center=11, baseline=11+3.42=14.42 → gopdf y=14
+	pdf.SetXY(tx, 14)
 		pdf.Text(col.Label)
 		x += cellW
 	}
 
 	// 表体：品牌红色文字（无背景）
-	// 每行22pt，10pt CJK 文字视觉中心居中：
+	// 每行20pt，10pt CJK 文字视觉中心居中：
 	//   gopdf baseline = 行顶 + bodyH/2 + fontSize*0.38
 	pdf.SetTextColor(tR, tG, tB)
 	y := headerH
 	for _, row := range rows {
-		// 10pt CJK in 22pt row: baseline = rowTop + bodyH/2 + fontSize*0.38
-		yBase := y + bodyH/2 + 10*0.38
+		// 9pt CJK in 20pt row: baseline = rowTop + bodyH/2 + fontSize*0.38
+		yBase := y + bodyH/2 + 9*0.38
 		x = marginL
 		for i, col := range columns {
 			val := row[col.Key]
-			pdf.SetFont("hyzdx", "", 10)
+			pdf.SetFont("hyzdx", "", 9)  // 表体字体从10pt改为9pt
 			textW, _ := pdf.MeasureTextWidth(val)
-			tx := calcAlignX(x, colWidths[i], textW, col.Align)
+			cellW := colWidths[i]
+			
+			// 如果文字宽度超过列宽，截断并加省略号
+			if textW > cellW {
+				for len(val) > 0 {
+					val = val[:len(val)-1]
+					testW, _ := pdf.MeasureTextWidth(val + "...")
+					if testW <= cellW {
+						val = val + "..."
+						textW = testW
+						break
+					}
+				}
+			}
+			
+			tx := calcAlignX(x, cellW, textW, col.Align)
 			pdf.SetXY(tx, yBase)
 			pdf.Text(val)
 			x += colWidths[i]

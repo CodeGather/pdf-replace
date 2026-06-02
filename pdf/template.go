@@ -17,6 +17,7 @@ import (
 type ImagePosition struct {
 	ObjNr int     // PDF 内部对象编号
 	Name  string  // XObject 资源名称
+	Page  int     // 页码（1-based）
 	X     float64 // 页面上的 x 坐标（左下角原点）
 	Y     float64 // 页面上的 y 坐标
 	W     float64 // 显示宽度
@@ -114,22 +115,22 @@ func (t *Template) extractImagePositions() error {
 		}
 
 		for _, sd := range streams {
-			t.parseStream(sd, nameToObjNr)
+			t.parseStream(sd, nameToObjNr, pageNum)
 		}
 	}
 	return nil
 }
 
-func (t *Template) parseStream(sd *types.StreamDict, nameToObjNr map[string]int) {
+func (t *Template) parseStream(sd *types.StreamDict, nameToObjNr map[string]int, pageNum int) {
 	if len(sd.Content) == 0 {
 		if err := sd.Decode(); err != nil {
 			return
 		}
 	}
-	t.parseContent(string(sd.Content), nameToObjNr)
+	t.parseContent(string(sd.Content), nameToObjNr, pageNum)
 }
 
-func (t *Template) parseContent(content string, nameToObjNr map[string]int) {
+func (t *Template) parseContent(content string, nameToObjNr map[string]int, pageNum int) {
 	ctmStack := [][6]float64{}
 	ctmStack = append(ctmStack, [6]float64{1, 0, 0, 1, 0, 0})
 	ctm := ctmStack[0]
@@ -172,6 +173,7 @@ func (t *Template) parseContent(content string, nameToObjNr map[string]int) {
 					t.imgs = append(t.imgs, ImagePosition{
 						ObjNr: objNr,
 						Name:  name,
+						Page:  pageNum,
 						X:     ctm[4],
 						Y:     ctm[5],
 						W:     ctm[0],
@@ -256,10 +258,19 @@ func (t *Template) FindImageByRect(tx, ty, tw, th, tolerance float64) *ImagePosi
 	return nil
 }
 
+// FindImageByObjNr 通过对象编号查找图片位置
+func (t *Template) FindImageByObjNr(objNr int) *ImagePosition {
+	for _, img := range t.imgs {
+		if img.ObjNr == objNr {
+			cp := img
+			return &cp
+		}
+	}
+	return nil
+}
+
 // ReplaceImage 替换指定 objNr 的图片
 func (t *Template) ReplaceImage(objNr int, pngData []byte) error {
-	// 绕过 pdfcpu 的 validateImageDimensions （需要提前填充 Optimize.ImageObjects）
-	// 直接创建新的 StreamDict 并替换 xref 表项
 	rd := bytes.NewReader(pngData)
 	sd, _, _, err := model.CreateImageStreamDict(t.ctx.XRefTable, rd)
 	if err != nil {
@@ -273,6 +284,68 @@ func (t *Template) ReplaceImage(objNr int, pngData []byte) error {
 	}
 
 	entry.Object = *sd
+	return nil
+}
+
+// DrawRectBorder 在指定图片位置上绘制独立矩形边框（PDF 矢量描边）
+// 边框作为独立的内容流追加到页面末尾，不受图片分辨率影响
+func (t *Template) DrawRectBorder(imgPos ImagePosition, lineWidth float64, r, g, b float64) error {
+	var buf strings.Builder
+	buf.WriteString(fmt.Sprintf("q\n"))
+	buf.WriteString(fmt.Sprintf("%.4f %.4f %.4f RG\n", r, g, b))
+	buf.WriteString(fmt.Sprintf("%.4f w\n", lineWidth))
+	buf.WriteString(fmt.Sprintf("%.4f %.4f %.4f %.4f re\n", imgPos.X, imgPos.Y, imgPos.W, imgPos.H))
+	buf.WriteString("S\nQ\n")
+
+	sd := types.StreamDict{
+		Dict:    types.NewDict(),
+		Content: []byte(buf.String()),
+	}
+	if err := sd.Encode(); err != nil {
+		return fmt.Errorf("编码边框内容流失败: %w", err)
+	}
+
+	objNr, err := t.ctx.XRefTable.InsertObject(sd)
+	if err != nil {
+		return fmt.Errorf("插入边框流对象失败: %w", err)
+	}
+
+	ir := types.IndirectRef{
+		ObjectNumber:     types.Integer(objNr),
+		GenerationNumber: types.Integer(0),
+	}
+
+	pageNum := imgPos.Page
+	pageDict, _, _, err := t.ctx.PageDict(pageNum, false)
+	if err != nil {
+		return fmt.Errorf("获取页面 %d 字典失败: %w", pageNum, err)
+	}
+
+	contents, ok := pageDict.Find("Contents")
+	if !ok {
+		return fmt.Errorf("页面 %d 无 Contents", pageNum)
+	}
+
+	switch c := contents.(type) {
+	case types.StreamDict:
+		pageDict.Update("Contents", types.Array{ir})
+	case types.Array:
+		pageDict.Update("Contents", append(c, ir))
+	case types.IndirectRef:
+		refd, err := t.ctx.Dereference(c)
+		if err != nil {
+			return fmt.Errorf("解引用 Contents 失败: %w", err)
+		}
+		switch v := refd.(type) {
+		case types.StreamDict:
+			pageDict.Update("Contents", types.Array{c, ir})
+		case types.Array:
+			pageDict.Update("Contents", append(v, ir))
+		default:
+			return fmt.Errorf("不支持的 Contents 类型: %T", v)
+		}
+	}
+
 	return nil
 }
 
