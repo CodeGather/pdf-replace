@@ -14,6 +14,8 @@ import (
 	"pdf-replace/matcher"
 	"pdf-replace/model"
 	"pdf-replace/pdf"
+
+	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/types"
 )
 
 const (
@@ -150,12 +152,12 @@ func Run(inputPath, outputPath string, cpu int) error {
 		})
 	}
 
-	// 4. 并行处理图片（打开→解码→文字叠加→编码，无边框）
+	// 4. 并行处理图片（打开→解码→文字叠加→Flate压缩）
 	log.Printf("并行处理 %d 张图片...", len(prepJobs))
 	type processed struct {
 		numStr   string
 		objNr    int
-		data     []byte
+		sd       *types.StreamDict
 		isNew    bool
 		lampItem model.LampItem
 		err      error
@@ -180,8 +182,13 @@ func Run(inputPath, outputPath string, cpu int) error {
 		go func() {
 			defer wg.Done()
 			for job := range jobs {
-				data, err := processImage(job.srcPath, job.lampItem, cfg.BrandConf)
-				results <- processed{numStr: job.numStr, objNr: job.objNr, data: data, isNew: job.isNew, lampItem: job.lampItem, err: err}
+				img, err := processImageDirect(job.srcPath, job.lampItem, cfg.BrandConf)
+				if err == nil && img != nil {
+					sd := pdf.ImageToStreamDict(img)
+					results <- processed{numStr: job.numStr, objNr: job.objNr, sd: sd, isNew: job.isNew, lampItem: job.lampItem, err: nil}
+				} else {
+					results <- processed{numStr: job.numStr, objNr: job.objNr, sd: nil, isNew: job.isNew, lampItem: job.lampItem, err: err}
+				}
 			}
 		}()
 	}
@@ -193,7 +200,7 @@ func Run(inputPath, outputPath string, cpu int) error {
 	wg.Wait()
 	close(results)
 
-	// 5. 串行替换 PDF 图片 + 记录 isNew 灯位信息
+	// 5. 串行替换 PDF 图片（直接 Flate 压缩像素，跳过二次解码）
 	var newRows []tableRow
 	var newObjNrPositions []struct {
 		objNr int
@@ -204,7 +211,7 @@ func Run(inputPath, outputPath string, cpu int) error {
 			log.Printf("  [错误] 灯位 %s: %v", r.numStr, r.err)
 			continue
 		}
-		if err := tmpl.ReplaceImage(r.objNr, r.data); err != nil {
+		if err := tmpl.ReplaceStreamDict(r.objNr, r.sd); err != nil {
 			log.Printf("  [错误] 灯位 %s 替换失败: %v", r.numStr, err)
 			continue
 		}
@@ -218,7 +225,7 @@ func Run(inputPath, outputPath string, cpu int) error {
 		}
 	}
 
-	// 5b. 独立 PDF 矢量边框（与图片无关，所有灯位线宽一致）
+	// 5b. 独立 PDF 矢量边框
 	bc := cfg.BrandConf
 	for _, item := range newObjNrPositions {
 		imgPos := tmpl.FindImageByObjNr(item.objNr)
@@ -249,8 +256,8 @@ func Run(inputPath, outputPath string, cpu int) error {
 	return nil
 }
 
-// processImage 只解码图片 + 叠加上市备注文字（不处理边框）
-func processImage(srcPath string, lampItem model.LampItem, bc model.BrandConfig) ([]byte, error) {
+// processImageDirect 解码图片 + 叠加上市备注文字，返回 image.Image（跳过 PNG 编解码）
+func processImageDirect(srcPath string, lampItem model.LampItem, bc model.BrandConfig) (image.Image, error) {
 	f, err := os.Open(srcPath)
 	if err != nil {
 		return nil, fmt.Errorf("打开图片失败: %w", err)
@@ -275,7 +282,7 @@ func processImage(srcPath string, lampItem model.LampItem, bc model.BrandConfig)
 			fontPt, fontPath)
 	}
 
-	return pdf.EncodePNG(img)
+	return img, nil
 }
 
 // renderTable 渲染 isNew 表格为原生 PDF 文本（可搜索）并注入到页面底部

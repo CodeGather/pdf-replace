@@ -2,7 +2,9 @@ package pdf
 
 import (
 	"bytes"
+	"compress/flate"
 	"fmt"
+	"image"
 	"math"
 	"os"
 	"strconv"
@@ -283,6 +285,56 @@ func (t *Template) ReplaceImage(objNr int, pngData []byte) error {
 		return fmt.Errorf("未找到 objNr=%d", objNr)
 	}
 
+	entry.Object = *sd
+	return nil
+}
+
+// ImageToStreamDict 将 image.Image 转为 Flate 压缩的 PDF 图片流（可并行调用）
+func ImageToStreamDict(img image.Image) *types.StreamDict {
+	bounds := img.Bounds()
+	w, h := bounds.Dx(), bounds.Dy()
+
+	raw := make([]byte, w*h*3)
+	idx := 0
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			r, g, b, _ := img.At(x+bounds.Min.X, y+bounds.Min.Y).RGBA()
+			raw[idx] = byte(r >> 8)
+			raw[idx+1] = byte(g >> 8)
+			raw[idx+2] = byte(b >> 8)
+			idx += 3
+		}
+	}
+
+	var compressed bytes.Buffer
+	fw, _ := flate.NewWriter(&compressed, flate.DefaultCompression)
+	fw.Write(raw)
+	fw.Close()
+
+	sd := types.StreamDict{
+		Dict:    types.NewDict(),
+		Content: compressed.Bytes(),
+	}
+	sd.Dict["Type"] = types.Name("XObject")
+	sd.Dict["Subtype"] = types.Name("Image")
+	sd.Dict["Width"] = types.Integer(w)
+	sd.Dict["Height"] = types.Integer(h)
+	sd.Dict["ColorSpace"] = types.Name("DeviceRGB")
+	sd.Dict["BitsPerComponent"] = types.Integer(8)
+	sd.Dict["Filter"] = types.Name("FlateDecode")
+	return &sd
+}
+
+// ReplaceStreamDict 替换指定 objNr 的图片流（仅 xref 交换，极快，可串行）
+func (t *Template) ReplaceStreamDict(objNr int, sd *types.StreamDict) error {
+	if err := sd.Encode(); err != nil {
+		return fmt.Errorf("编码图片流失败: %w", err)
+	}
+	genNr := 0
+	entry, ok := t.ctx.FindTableEntry(objNr, genNr)
+	if !ok {
+		return fmt.Errorf("未找到 objNr=%d", objNr)
+	}
 	entry.Object = *sd
 	return nil
 }
