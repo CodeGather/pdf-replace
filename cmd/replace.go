@@ -153,11 +153,12 @@ func Run(inputPath, outputPath string) error {
 	// 4. 并行处理图片（打开→解码→文字叠加→编码，无边框）
 	log.Printf("并行处理 %d 张图片...", len(prepJobs))
 	type processed struct {
-		numStr string
-		objNr  int
-		data   []byte
-		isNew  bool
-		err    error
+		numStr   string
+		objNr    int
+		data     []byte
+		isNew    bool
+		lampItem model.LampItem
+		err      error
 	}
 
 	jobs := make(chan prepJob, len(prepJobs))
@@ -178,7 +179,7 @@ func Run(inputPath, outputPath string) error {
 			defer wg.Done()
 			for job := range jobs {
 				data, err := processImage(job.srcPath, job.lampItem, cfg.BrandConf)
-				results <- processed{numStr: job.numStr, objNr: job.objNr, data: data, isNew: job.isNew, err: err}
+				results <- processed{numStr: job.numStr, objNr: job.objNr, data: data, isNew: job.isNew, lampItem: job.lampItem, err: err}
 			}
 		}()
 	}
@@ -207,7 +208,7 @@ func Run(inputPath, outputPath string) error {
 		}
 		log.Printf("  [替换] 灯位 %s (obj=%d)", r.numStr, r.objNr)
 		if r.isNew {
-			newRows = append(newRows, tableRow{num: r.numStr})
+			newRows = append(newRows, tableRow{num: r.numStr, item: r.lampItem})
 			newObjNrPositions = append(newObjNrPositions, struct {
 				objNr int
 				name  string
