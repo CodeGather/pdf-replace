@@ -67,6 +67,11 @@ func Run(inputPath, outputPath string, cpu int) error {
 	defer tmpl.Close()
 
 	// 3. 准备所有灯位的任务
+	var newRows []tableRow
+	var newObjNrPositions []struct {
+		objNr int
+		name  string
+	}
 	type prepJob struct {
 		numStr   string
 		lampItem model.LampItem
@@ -99,7 +104,12 @@ func Run(inputPath, outputPath string, cpu int) error {
 			continue
 		}
 
-		// 3c. 匹配 PDF 图片位置
+		// 3c. 收集 isNew 表格行（独立于图片替换，无素材也有表格）
+		if lampItem.IsNewValue() {
+			newRows = append(newRows, tableRow{num: numStr, item: lampItem})
+		}
+
+		// 3d. 匹配 PDF 图片位置
 		imgX := entry.Image.OriginalTransform.X
 		imgY := entry.Image.OriginalTransform.Y
 		imgW := entry.Image.OriginalTransform.Width
@@ -207,11 +217,6 @@ func Run(inputPath, outputPath string, cpu int) error {
 	close(results)
 
 	// 5. 串行替换 PDF 图片（直接 Flate 压缩像素，跳过二次解码）
-	var newRows []tableRow
-	var newObjNrPositions []struct {
-		objNr int
-		name  string
-	}
 	for r := range results {
 		if r.err != nil {
 			log.Printf("  [错误] 灯位 %s: %v", r.numStr, r.err)
@@ -223,7 +228,6 @@ func Run(inputPath, outputPath string, cpu int) error {
 		}
 		log.Printf("  [替换] 灯位 %s (obj=%d)", r.numStr, r.objNr)
 		if r.isNew {
-			newRows = append(newRows, tableRow{num: r.numStr, item: r.lampItem})
 			newObjNrPositions = append(newObjNrPositions, struct {
 				objNr int
 				name  string
