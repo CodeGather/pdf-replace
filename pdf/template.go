@@ -5,6 +5,7 @@ import (
 	"compress/flate"
 	"fmt"
 	"image"
+	"image/jpeg"
 	"math"
 	"os"
 	"strconv"
@@ -322,6 +323,28 @@ func ImageToStreamDict(img image.Image) *types.StreamDict {
 	sd.Dict["ColorSpace"] = types.Name("DeviceRGB")
 	sd.Dict["BitsPerComponent"] = types.Integer(8)
 	sd.Dict["Filter"] = types.Name("FlateDecode")
+	return &sd
+}
+
+// ImageToStreamDictJPEG 将 image.Image 转为 JPEG 压缩的 PDF 图片流（更小更快，可并行调用）
+func ImageToStreamDictJPEG(img image.Image, quality int) *types.StreamDict {
+	bounds := img.Bounds()
+	w, h := bounds.Dx(), bounds.Dy()
+
+	var buf bytes.Buffer
+	jpeg.Encode(&buf, img, &jpeg.Options{Quality: quality})
+
+	sd := types.StreamDict{
+		Dict:    types.NewDict(),
+		Content: buf.Bytes(),
+	}
+	sd.Dict["Type"] = types.Name("XObject")
+	sd.Dict["Subtype"] = types.Name("Image")
+	sd.Dict["Width"] = types.Integer(w)
+	sd.Dict["Height"] = types.Integer(h)
+	sd.Dict["ColorSpace"] = types.Name("DeviceRGB")
+	sd.Dict["BitsPerComponent"] = types.Integer(8)
+	sd.Dict["Filter"] = types.Name("DCTDecode")
 	return &sd
 }
 

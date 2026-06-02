@@ -70,6 +70,8 @@ func Run(inputPath, outputPath string, cpu int) error {
 		lampItem model.LampItem
 		objNr    int
 		srcPath  string
+		targetW  float64
+		targetH  float64
 		isNew    bool
 		err      error
 	}
@@ -148,6 +150,8 @@ func Run(inputPath, outputPath string, cpu int) error {
 			lampItem: lampItem,
 			objNr:    ip.ObjNr,
 			srcPath:  match.Image.Path,
+			targetW:  targetW,
+			targetH:  targetH,
 			isNew:    lampItem.IsNewValue(),
 		})
 	}
@@ -182,9 +186,9 @@ func Run(inputPath, outputPath string, cpu int) error {
 		go func() {
 			defer wg.Done()
 			for job := range jobs {
-				img, err := processImageDirect(job.srcPath, job.lampItem, cfg.BrandConf)
+				img, err := processImageDirect(job.srcPath, job.lampItem, cfg.BrandConf, job.targetW, job.targetH)
 				if err == nil && img != nil {
-					sd := pdf.ImageToStreamDict(img)
+					sd := pdf.ImageToStreamDictJPEG(img, 85)
 					results <- processed{numStr: job.numStr, objNr: job.objNr, sd: sd, isNew: job.isNew, lampItem: job.lampItem, err: nil}
 				} else {
 					results <- processed{numStr: job.numStr, objNr: job.objNr, sd: nil, isNew: job.isNew, lampItem: job.lampItem, err: err}
@@ -256,8 +260,8 @@ func Run(inputPath, outputPath string, cpu int) error {
 	return nil
 }
 
-// processImageDirect 解码图片 + 叠加上市备注文字，返回 image.Image（跳过 PNG 编解码）
-func processImageDirect(srcPath string, lampItem model.LampItem, bc model.BrandConfig) (image.Image, error) {
+// processImageDirect 解码图片 → 缩放到灯位尺寸 → 叠加上市备注文字 → 返回 image.Image
+func processImageDirect(srcPath string, lampItem model.LampItem, bc model.BrandConfig, targetW, targetH float64) (image.Image, error) {
 	f, err := os.Open(srcPath)
 	if err != nil {
 		return nil, fmt.Errorf("打开图片失败: %w", err)
@@ -269,7 +273,8 @@ func processImageDirect(srcPath string, lampItem model.LampItem, bc model.BrandC
 		return nil, fmt.Errorf("解码图片失败: %w", err)
 	}
 
-	img := srcImg
+	// 缩放到灯位显示尺寸（大幅减小文件体积且不影响显示质量）
+	img := pdf.ScaleImageContain(srcImg, targetW, targetH)
 
 	// 上市备注文字
 	if lampItem.LaunchNote != "" {
