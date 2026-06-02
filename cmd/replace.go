@@ -8,7 +8,9 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
+	"time"
 
 	"pdf-replace/config"
 	"pdf-replace/matcher"
@@ -346,4 +348,66 @@ func renderTable(tmpl *pdf.Template, cfg *model.Config, rows []tableRow) (float6
 
 	log.Printf("表格已注入 (行数=%d, 字体=%s)", len(rows), filepath.Base(fontPath))
 	return 0, nil
+}
+
+// RunMerge 批量合成模式：扫描目录中所有 *.json 文件，依次处理
+func RunMerge(mergeDir, outputDir string, cpu int) error {
+	entries, err := os.ReadDir(mergeDir)
+	if err != nil {
+		return fmt.Errorf("读取合成目录失败: %w", err)
+	}
+
+	// 收集并排序所有 .json 文件
+	var jsonFiles []string
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		jsonFiles = append(jsonFiles, e.Name())
+	}
+	if len(jsonFiles) == 0 {
+		return fmt.Errorf("合成目录中无 JSON 文件: %s", mergeDir)
+	}
+
+	// 默认输出目录
+	if outputDir == "" {
+		outputDir = filepath.Join(mergeDir, "_output_")
+	}
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		return fmt.Errorf("创建输出目录失败: %w", err)
+	}
+
+	log.Printf("批量合成: %s → %s (%d 个文件)", mergeDir, outputDir, len(jsonFiles))
+	startTime := time.Now()
+
+	success, fail := 0, 0
+	for i, name := range jsonFiles {
+		inputPath := filepath.Join(mergeDir, name)
+		outName := strings.TrimSuffix(name, ".json") + ".pdf"
+		outputPath := filepath.Join(outputDir, outName)
+
+		fileStart := time.Now()
+		if err := Run(inputPath, outputPath, cpu); err != nil {
+			log.Printf("  [失败 %s] %v", name, err)
+			fail++
+			continue
+		}
+		elapsed := time.Since(fileStart)
+		// 获取输出文件大小
+		if fi, err := os.Stat(outputPath); err == nil {
+			log.Printf("  [%d/%d] %s → %s (%.1fMB, %v)",
+				i+1, len(jsonFiles), name, outName,
+				float64(fi.Size())/1024/1024, elapsed.Round(time.Millisecond))
+		} else {
+			log.Printf("  [%d/%d] %s → %s (%v)",
+				i+1, len(jsonFiles), name, outName, elapsed.Round(time.Millisecond))
+		}
+		success++
+	}
+
+	totalTime := time.Since(startTime)
+	log.Printf("完成: %d/%d 成功, %d 失败 (总耗时 %v, 平均 %.2fs/个)",
+		success, len(jsonFiles), fail, totalTime.Round(time.Millisecond),
+		totalTime.Seconds()/float64(len(jsonFiles)))
+	return nil
 }
