@@ -228,7 +228,7 @@ func WriteTableToPDF(outputPath string, columns []ColumnDef, rows []TableRow, fo
 	pdf.AddPage()
 
 	// 表头：灰色背景 + 黑色加粗文字
-	pdf.SetFillColor(220, 220, 220)
+	pdf.SetFillColor(240, 240, 240)
 	pdf.RectFromUpperLeftWithStyle(marginL, 0, usableW, headerH, "F")
 	pdf.SetTextColor(0, 0, 0)
 	x := marginL
