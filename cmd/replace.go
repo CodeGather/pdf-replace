@@ -38,7 +38,7 @@ type lampJob struct {
 }
 
 // Run 程序主入口
-func Run(inputPath, outputPath string) error {
+func Run(inputPath, outputPath string, cpu int) error {
 	cfg, err := config.LoadConfig(inputPath)
 	if err != nil {
 		return fmt.Errorf("加载配置失败: %w", err)
@@ -166,7 +166,9 @@ func Run(inputPath, outputPath string) error {
 	var wg sync.WaitGroup
 
 	workerCount := len(prepJobs)
-	if workerCount > 4 {
+	if cpu > 0 {
+		workerCount = cpu
+	} else if workerCount > 4 {
 		workerCount = 4
 	}
 	if workerCount < 1 {
